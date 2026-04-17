@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
-import { AuctionService } from './auction.service';
 import { AuctionController } from './auction.controller';
+import { AuctionService } from './auction.service';
 
 @Module({
+  controllers: [AuctionController],
   providers: [AuctionService],
-  controllers: [AuctionController]
+  exports: [AuctionService],
 })
 export class AuctionModule {}
