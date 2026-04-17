@@ -1,7 +1,4 @@
 import { Injectable } from '@nestjs/common';
 
-
 @Injectable()
-export class BidService {
-  // Create a new bid
-}
+export class BidService {}
