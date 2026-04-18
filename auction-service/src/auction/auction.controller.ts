@@ -1,28 +1,41 @@
 import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { IsNotEmpty, IsString } from 'class-validator';
 import { AuctionService } from './auction.service';
 import { CreateAuctionDto } from './dto/create-auction.dto';
 import type { Auction } from './interfaces/auction.interface';
+
+class CloseAuctionDto {
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+}
+
 @Controller('auctions')
 export class AuctionController {
   constructor(private readonly auctionService: AuctionService) {}
 
   @Post()
-  createAuction(@Body() createAuctionDto: CreateAuctionDto): Auction {
-    return this.auctionService.createAuction(createAuctionDto);
+  async createAuction(
+    @Body() createAuctionDto: CreateAuctionDto,
+  ): Promise<Auction> {
+    return await this.auctionService.createAuction(createAuctionDto);
   }
 
   @Get()
-  getAllAuctions(): Auction[] {
-    return this.auctionService.getAllAuctions();
+  async getAllAuctions(): Promise<Auction[]> {
+    return await this.auctionService.getAllAuctions();
   }
 
   @Get(':id')
-  getAuctionById(@Param('id') id: string): Auction {
-    return this.auctionService.getAuctionById(id);
+  async getAuctionById(@Param('id') id: string): Promise<Auction> {
+    return await this.auctionService.getAuctionById(id);
   }
 
   @Patch(':id/close')
-  closeAuction(@Param('id') id: string): Auction {
-    return this.auctionService.closeAuction(id);
+  async closeAuction(
+    @Param('id') id: string,
+    @Body() body: CloseAuctionDto,
+  ): Promise<Auction> {
+    return await this.auctionService.closeAuction(id, body.userId);
   }
 }
