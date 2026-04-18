@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-call */
 import {
   IsDateString,
   IsNotEmpty,
@@ -7,8 +6,9 @@ import {
   IsString,
   Min,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
-export class CreateAuctionDto {
+export class CreateRealtimeAuctionDto {
   @IsString()
   @IsNotEmpty()
   title: string;
@@ -17,6 +17,7 @@ export class CreateAuctionDto {
   @IsOptional()
   description?: string;
 
+  @Type(() => Number)
   @IsNumber()
   @Min(1)
   startingPrice: number;
@@ -24,9 +25,6 @@ export class CreateAuctionDto {
   @IsString()
   @IsNotEmpty()
   sellerId: string;
-
-  @IsDateString()
-  startTime: string;
 
   @IsDateString()
   endTime: string;

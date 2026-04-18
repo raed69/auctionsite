@@ -1,4 +1,8 @@
-import { Injectable, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { supabase } from '../supabase/supabase.client';
 import * as bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
@@ -8,7 +12,6 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Injectable()
 export class UserService {
-
   // ---------------- REGISTER ----------------
   async register(dto: RegisterDto) {
     const { data: existingUser } = await supabase
@@ -68,8 +71,12 @@ export class UserService {
 
     if (!user) throw new UnauthorizedException('Invalid email or password');
 
-    const isPasswordValid = await bcrypt.compare(dto.password, user.password_hash);
-    if (!isPasswordValid) throw new UnauthorizedException('Invalid email or password');
+    const isPasswordValid = await bcrypt.compare(
+      dto.password,
+      user.password_hash,
+    );
+    if (!isPasswordValid)
+      throw new UnauthorizedException('Invalid email or password');
 
     if (!user.email_verified) {
       throw new UnauthorizedException('Please verify your email first');
@@ -139,28 +146,38 @@ export class UserService {
       .eq('request_owner', userId)
       .eq('status', 'pending')
       .single();
-  
+
     if (existingRequest) {
-      throw new BadRequestException('You already have a pending seller request');
+      throw new BadRequestException(
+        'You already have a pending seller request',
+      );
     }
-  
+
     // Insérer une nouvelle demande
-    const { error } = await supabase
-      .from('seller_requests')
-      .insert([
-        {
-          request_owner: userId,
-          requested_at: new Date(),  
-          status: 'pending',         
-        }
-      ]);
-  
+    const { error } = await supabase.from('seller_requests').insert([
+      {
+        request_owner: userId,
+        requested_at: new Date(),
+        status: 'pending',
+      },
+    ]);
+
     if (error) throw new BadRequestException(error.message);
-  
+
     return { message: 'Seller request submitted. Waiting for admin approval.' };
   }
-  
 
+  async getUserById(userId: string) {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, role')
+      .eq('id', userId)
+      .single();
 
-  
+    if (error || !data) {
+      throw new BadRequestException('User not found');
+    }
+
+    return data;
+  }
 }
