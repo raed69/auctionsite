@@ -1,9 +1,21 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UploadedFiles,
+  UseInterceptors,
+} from '@nestjs/common';
 import { IsNotEmpty, IsString } from 'class-validator';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { AuctionService } from './auction.service';
 import { CreateRealtimeAuctionDto } from './dto/create-realtime-auction.dto';
 import { CreateDraftAuctionDto } from './dto/create-draft-auction.dto';
 import type { Auction } from './interfaces/auction.interface';
+import { memoryStorage } from 'multer';
 
 class CloseAuctionDto {
   @IsString()
@@ -28,17 +40,30 @@ export class AuctionController {
   constructor(private readonly auctionService: AuctionService) {}
 
   @Post('realtime')
+  @UseInterceptors(
+    FilesInterceptor('images', 10, {
+      storage: memoryStorage(), // explicitly store files in memory as buffer
+    }),
+  )
   async createRealtimeAuction(
     @Body() dto: CreateRealtimeAuctionDto,
-  ): Promise<Auction> {
-    return await this.auctionService.createRealtimeAuction(dto);
+    @UploadedFiles() images: Express.Multer.File[],
+  ) {
+    console.log('Received images:', images);
+    return await this.auctionService.createRealtimeAuction(dto, images);
   }
 
   @Post('draft')
+  @UseInterceptors(
+    FilesInterceptor('images', 10, {
+      storage: memoryStorage(),
+    }),
+  )
   async createDraftAuction(
     @Body() dto: CreateDraftAuctionDto,
-  ): Promise<Auction> {
-    return await this.auctionService.createDraftAuction(dto);
+    @UploadedFiles() images: Express.Multer.File[] = [],
+  ) {
+    return await this.auctionService.createDraftAuction(dto, images);
   }
 
   @Get()
@@ -72,5 +97,16 @@ export class AuctionController {
     @Body() body: DeleteAllAuctionsDto,
   ): Promise<{ message: string; deletedCount: number }> {
     return await this.auctionService.deleteAllAuctions(body.userId);
+  }
+  @Patch(':id/bid')
+  async updateAuctionAfterBid(
+    @Param('id') id: string,
+    @Body() body: { amount: number; bidderId: string },
+  ) {
+    return this.auctionService.updateAuctionAfterBid(
+      id,
+      body.amount,
+      body.bidderId,
+    );
   }
 }

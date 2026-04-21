@@ -11,6 +11,7 @@ import {
   import { CreateDraftAuctionDto } from './dto/create-draft-auction.dto';
   import { SupabaseService } from '../supabase/supabase.service';
   import type { Auction } from './interfaces/auction.interface';
+import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
   
   interface UserResponse {
     id: string | number;
@@ -22,15 +23,21 @@ import {
     id: string;
     title: string;
     description: string | null;
+    image_urls?: string[];
+    condition?: 'new' | 'like_new' | 'used' | 'damaged';
     starting_price: number | string;
     current_price: number | string;
     seller_id: string;
+    highest_bidder_id: string | null;
+    winner_id: string | null;
+    bid_count: number | string;
     start_time: string;
     end_time: string;
     status: 'draft' | 'active' | 'ended';
     created_at: string;
+    updated_at: string | null;
+    closed_at: string | null;
   };
-  
   @Injectable()
   export class AuctionService {
     constructor(
@@ -39,98 +46,160 @@ import {
     ) {}
   
     async createRealtimeAuction(
-      dto: CreateRealtimeAuctionDto,
-    ): Promise<Auction> {
-      const supabase = this.supabaseService.getClient();
-      const now = new Date();
-      const end = new Date(dto.endTime);
-  
-      if (end <= now) {
-        throw new BadRequestException('endTime must be in the future');
+        dto: CreateRealtimeAuctionDto,
+        images: Express.Multer.File[],  // Accept multiple images
+      ): Promise<Auction> {
+        const supabase = this.supabaseService.getClient();
+        const now = new Date();
+        const end = new Date(dto.endTime);
+      
+        // Ensure that the auction end time is in the future
+        if (end <= now) {
+          throw new BadRequestException('endTime must be in the future');
+        }
+      
+        // Ensure the user has the 'seller' role
+        const user = await this.getUserFromUserService(dto.sellerId);
+        if (user.role !== 'seller') {
+          throw new ForbiddenException('Only users with seller role can create auctions');
+        }
+      
+        // Handle the upload of multiple images and collect their URLs
+        const imageUrls: string[] = [];
+      
+        if (images && images.length > 0) {
+          // Process each image and upload it to Supabase storage
+          for (const image of images) {
+            try {
+              // Upload the image and get the public URL
+              const imageUrl = await uploadImageToSupabase(image, this.supabaseService);
+              imageUrls.push(imageUrl);
+      
+              // Log the individual image URL after uploading
+              console.log('Uploaded image URL:', imageUrl);
+            } catch (error) {
+              console.error('Error uploading image:', error);
+              // Log the error but continue processing the other images
+              continue;  // Skip the current image and continue with the others
+            }
+          }
+      
+          // Log the final array of image URLs after all uploads
+          console.log('All Image URLs collected:', imageUrls);
+        } else {
+          console.log('No images to upload');
+          // Optionally, you can add a default image URL if no images are uploaded
+          // For example:
+          // imageUrls.push('https://your-default-image-url.com/default.jpg');
+        }
+      
+        // Check if images are empty (optional)
+        if (imageUrls.length === 0) {
+          console.warn('No images were uploaded, the auction will proceed without images.');
+          // You can decide whether to proceed with default values or just empty array
+        }
+      
+        // Insert the auction into Supabase with the image URLs
+        const { data, error } = await supabase
+          .from('auctions')
+          .insert({
+            title: dto.title,
+            description: dto.description ?? null,
+            condition: dto.condition,
+            starting_price: dto.startingPrice,
+            current_price: dto.startingPrice,
+            seller_id: String(dto.sellerId),
+            start_time: now.toISOString(),
+            end_time: dto.endTime,
+            status: 'active',  // Auction is active upon creation
+            highest_bidder_id: null,
+            winner_id: null,
+            bid_count: 0,
+            updated_at: new Date().toISOString(),
+            closed_at: null,
+            image_urls: imageUrls,  // Store the array of image URLs in the database
+          })
+          .select()
+          .single();
+      
+        // Handle any error from Supabase insertion
+        if (error || !data) {
+          throw new BadRequestException(error?.message || 'Failed to create realtime auction');
+        }
+      
+        // Map the data to the Auction object and return it
+        return this.mapAuction(data as AuctionRow);
       }
+      
   
-      const user = await this.getUserFromUserService(dto.sellerId);
-  
-      if (user.role !== 'seller') {
-        throw new ForbiddenException(
-          'Only users with seller role can create auctions',
-        );
+      async createDraftAuction(
+        dto: CreateDraftAuctionDto,
+        images: Express.Multer.File[],  // Accept multiple images here
+      ): Promise<Auction> {
+        const supabase = this.supabaseService.getClient();
+        const now = new Date();
+        const start = new Date(dto.startTime);
+        const end = new Date(dto.endTime);
+      
+        // Ensure that the draft auction's start time is in the future
+        if (start <= now) {
+          throw new BadRequestException('For draft auctions, startTime must be in the future');
+        }
+      
+        // Ensure the auction's end time is greater than start time
+        if (end <= start) {
+          throw new BadRequestException('endTime must be greater than startTime');
+        }
+      
+        // Ensure the user has the 'seller' role
+        const user = await this.getUserFromUserService(dto.sellerId);
+        if (user.role !== 'seller') {
+          throw new ForbiddenException('Only users with seller role can create auctions');
+        }
+      
+        // Handle the image uploads and collect their URLs
+        const imageUrls: string[] = [];
+        console.log('Images to upload:', images);
+      
+        if (images && images.length > 0) {
+          for (const image of images) {
+            console.log('Uploading image:', image.originalname);  // Log the image being processed
+            const imageUrl = await uploadImageToSupabase(image, this.supabaseService);// Upload image and get URL
+            console.log('Uploaded image URL:', imageUrl);  // Log the URL of the uploaded image
+            imageUrls.push(imageUrl);  // Add the image URL to the array
+          }
+        }
+      
+        // Insert the auction into Supabase with the image URLs
+        const { data, error } = await supabase
+          .from('auctions')
+          .insert({
+            title: dto.title,
+            description: dto.description ?? null,
+            condition: dto.condition,
+            starting_price: dto.startingPrice,
+            current_price: dto.startingPrice,
+            seller_id: String(dto.sellerId),
+            start_time: dto.startTime,
+            end_time: dto.endTime,
+            status: 'draft',  // Set the auction status to 'draft'
+            highest_bidder_id: null,
+            winner_id: null,
+            bid_count: 0,
+            updated_at: new Date().toISOString(),
+            closed_at: null,
+            image_urls: imageUrls,  // Store the array of image URLs in the database
+          })
+          .select()
+          .single();
+      
+        // Handle any error from Supabase insertion
+        if (error || !data) {
+          throw new BadRequestException(error?.message || 'Failed to create draft auction');
+        }
+      
+        return this.mapAuction(data as AuctionRow);  // Return the mapped auction data
       }
-  
-      const { data, error } = await supabase
-        .from('auctions')
-        .insert({
-          title: dto.title,
-          description: dto.description ?? null,
-          starting_price: dto.startingPrice,
-          current_price: dto.startingPrice,
-          seller_id: String(dto.sellerId),
-          start_time: now.toISOString(),
-          end_time: dto.endTime,
-          status: 'active',
-        })
-        .select()
-        .single();
-  
-      if (error || !data) {
-        throw new BadRequestException(
-          error?.message || 'Failed to create realtime auction',
-        );
-      }
-  
-      return this.mapAuction(data as AuctionRow);
-    }
-  
-    async createDraftAuction(
-      dto: CreateDraftAuctionDto,
-    ): Promise<Auction> {
-      const supabase = this.supabaseService.getClient();
-      const now = new Date();
-      const start = new Date(dto.startTime);
-      const end = new Date(dto.endTime);
-  
-      if (start <= now) {
-        throw new BadRequestException(
-          'For draft auctions, startTime must be in the future',
-        );
-      }
-  
-      if (end <= start) {
-        throw new BadRequestException('endTime must be greater than startTime');
-      }
-  
-      const user = await this.getUserFromUserService(dto.sellerId);
-  
-      if (user.role !== 'seller') {
-        throw new ForbiddenException(
-          'Only users with seller role can create auctions',
-        );
-      }
-  
-      const { data, error } = await supabase
-        .from('auctions')
-        .insert({
-          title: dto.title,
-          description: dto.description ?? null,
-          starting_price: dto.startingPrice,
-          current_price: dto.startingPrice,
-          seller_id: String(dto.sellerId),
-          start_time: dto.startTime,
-          end_time: dto.endTime,
-          status: 'draft',
-        })
-        .select()
-        .single();
-  
-      if (error || !data) {
-        throw new BadRequestException(
-          error?.message || 'Failed to create draft auction',
-        );
-      }
-  
-      return this.mapAuction(data as AuctionRow);
-    }
-  
     async getAllAuctions(): Promise<Auction[]> {
         const { data, error } = await this.supabaseService
           .getClient()
@@ -238,19 +307,28 @@ import {
     }
   
     private mapAuction(row: AuctionRow): Auction {
-      return {
-        id: row.id,
-        title: row.title,
-        description: row.description ?? undefined,
-        starting_price: Number(row.starting_price),
-        current_price: Number(row.current_price),
-        seller_id: row.seller_id,
-        startTime: row.start_time,
-        endTime: row.end_time,
-        status: row.status,
-        createdAt: row.created_at,
-      };
-    }
+        return {
+          id: row.id,
+          title: row.title,
+          description: row.description ?? undefined,
+          starting_price: Number(row.starting_price),
+          current_price: Number(row.current_price),
+          seller_id: row.seller_id,
+          condition:row.condition,
+          highest_bidder_id: row.highest_bidder_id ?? null,
+          winner_id: row.winner_id ?? null,
+          bid_count: Number(row.bid_count ?? 0),
+      
+          startTime: row.start_time,
+          endTime: row.end_time,
+          status: row.status,
+      
+          createdAt: row.created_at,
+          updatedAt: row.updated_at ?? undefined,
+          closedAt: row.closed_at ?? null,
+          image_urls: row.image_urls ?? [] 
+        };
+      }
 
     private async refreshAuctionStatus(row: AuctionRow): Promise<Auction> {
         const now = new Date();
@@ -360,6 +438,38 @@ import {
           message: 'All auctions deleted successfully',
           deletedCount,
         };
+      }
+      async updateAuctionAfterBid(
+        auctionId: string,
+        amount: number,
+        bidderId: string,
+      ): Promise<Auction> {
+        const auction = await this.getAuctionById(auctionId);
+      
+        if (!auction) {
+          throw new Error('Auction not found');
+        }
+      
+        const supabase = this.supabaseService.getClient();
+      
+        const { data, error } = await supabase
+          .from('auctions')
+          .update({
+            current_price: amount,
+            highest_bidder_id: String(bidderId),
+            bid_count: Number(auction.bid_count || 0) + 1,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', auctionId)
+          .select()
+          .single();
+      
+        if (error) {
+          console.log('updateAuctionAfterBid error:', error);
+          throw new Error(error.message);
+        }
+      
+        return this.mapAuction(data);
       }
 
   }

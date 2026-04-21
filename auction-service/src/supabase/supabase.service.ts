@@ -4,7 +4,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 @Injectable()
 export class SupabaseService {
-  private client: SupabaseClient<any, any, any>;
+  private client: SupabaseClient;
 
   constructor(private configService: ConfigService) {
     const url = this.configService.get<string>('SUPABASE_URL');
@@ -14,10 +14,11 @@ export class SupabaseService {
       throw new Error('Missing Supabase environment variables');
     }
 
+    // Initialize Supabase client with environment variables from ConfigService
     this.client = createClient(url, key);
   }
 
-  getClient(): SupabaseClient<any, any, any> {
-    return this.client;
+  getClient(): SupabaseClient {
+    return this.client;  // Return the Supabase client
   }
 }

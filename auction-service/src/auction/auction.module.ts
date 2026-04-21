@@ -8,5 +8,6 @@ import { SupabaseModule } from '../supabase/supabase.module';
   imports: [ConfigModule, SupabaseModule],
   controllers: [AuctionController],
   providers: [AuctionService],
+  exports: [AuctionService],
 })
 export class AuctionModule {}
