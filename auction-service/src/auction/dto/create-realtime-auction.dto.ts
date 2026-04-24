@@ -7,10 +7,10 @@ import {
   Min,
   IsArray,
   ArrayNotEmpty,
-  IsIn, // Import IsIn to validate specific values
+  IsIn,
 } from 'class-validator';
-import { Type } from 'class-transformer';
-import * as multer from 'multer'; // Import multer
+import { Transform, Type } from 'class-transformer';
+import { IsRequiredIf } from 'src/common/decorators/is-required-if.decorator';
 
 export class CreateRealtimeAuctionDto {
   @IsString()
@@ -33,17 +33,25 @@ export class CreateRealtimeAuctionDto {
   @IsDateString()
   endTime: string;
 
-  // Multiple images
   @IsOptional()
   @IsArray()
   @ArrayNotEmpty()
-  images?: Express.Multer.File[]; // Use multer.File[] here
+  images?: Express.Multer.File[];
 
-  // Condition field
-  @IsOptional() // Makes condition optional, you can remove this if it's required
-  @IsIn(['new', 'like_new', 'used', 'damaged'], {
-    message:
-      'condition must be one of the following values: new, like_new, used, damaged',
+  @IsOptional()
+  @IsIn(['new', 'like_new', 'used', 'damaged'])
+  condition?: 'new' | 'like_new' | 'used' | 'damaged';
+
+  @Transform(({ value }) => value?.trim())  // ← add this
+  @IsIn(['TND', 'SOL'], {
+    message: 'Bid method must be either TND or SOL',
   })
-  condition?: 'new' | 'like_new' | 'used' | 'damaged'; // Adds condition with specific values
+  bidMethod: 'TND' | 'SOL';
+
+
+  @IsString()
+  @IsRequiredIf('bidMethod', 'SOL', {
+    message: 'sellerWallet is required for SOL auctions',
+  })
+  sellerWallet?: string;
 }

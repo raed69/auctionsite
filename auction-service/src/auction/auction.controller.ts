@@ -42,17 +42,16 @@ export class AuctionController {
   @Post('realtime')
   @UseInterceptors(
     FilesInterceptor('images', 10, {
-      storage: memoryStorage(), // explicitly store files in memory as buffer
+      storage: memoryStorage(),
     }),
   )
   async createRealtimeAuction(
     @Body() dto: CreateRealtimeAuctionDto,
     @UploadedFiles() images: Express.Multer.File[],
   ) {
-    console.log('Received images:', images);
+    console.log('=== RAW BODY ===', dto);  // ← add this
     return await this.auctionService.createRealtimeAuction(dto, images);
   }
-
   @Post('draft')
   @UseInterceptors(
     FilesInterceptor('images', 10, {

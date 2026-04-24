@@ -20,4 +20,8 @@ export interface Auction {
   createdAt?: string;
   updatedAt?: string;
   closedAt?: string | null;
+  bidmethod: 'TND' | 'SOL';
+  escrow_address?: string | null;
+  sellerwallet?: string | null;
+  solana_auction_id?: string | null;
 }

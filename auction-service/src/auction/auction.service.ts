@@ -37,6 +37,11 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
     created_at: string;
     updated_at: string | null;
     closed_at: string | null;
+    bid_method: 'TND' | 'SOL';
+    escrow_address: string | null; 
+    sellerwallet:string | null;
+    solana_auction_id: string | null;
+    
   };
   @Injectable()
   export class AuctionService {
@@ -46,90 +51,130 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
     ) {}
   
     async createRealtimeAuction(
-        dto: CreateRealtimeAuctionDto,
-        images: Express.Multer.File[],  // Accept multiple images
-      ): Promise<Auction> {
-        const supabase = this.supabaseService.getClient();
-        const now = new Date();
-        const end = new Date(dto.endTime);
-      
-        // Ensure that the auction end time is in the future
-        if (end <= now) {
-          throw new BadRequestException('endTime must be in the future');
-        }
-      
-        // Ensure the user has the 'seller' role
-        const user = await this.getUserFromUserService(dto.sellerId);
-        if (user.role !== 'seller') {
-          throw new ForbiddenException('Only users with seller role can create auctions');
-        }
-      
-        // Handle the upload of multiple images and collect their URLs
-        const imageUrls: string[] = [];
-      
-        if (images && images.length > 0) {
-          // Process each image and upload it to Supabase storage
-          for (const image of images) {
-            try {
-              // Upload the image and get the public URL
-              const imageUrl = await uploadImageToSupabase(image, this.supabaseService);
-              imageUrls.push(imageUrl);
-      
-              // Log the individual image URL after uploading
-              console.log('Uploaded image URL:', imageUrl);
-            } catch (error) {
-              console.error('Error uploading image:', error);
-              // Log the error but continue processing the other images
-              continue;  // Skip the current image and continue with the others
-            }
-          }
-      
-          // Log the final array of image URLs after all uploads
-          console.log('All Image URLs collected:', imageUrls);
-        } else {
-          console.log('No images to upload');
-          // Optionally, you can add a default image URL if no images are uploaded
-          // For example:
-          // imageUrls.push('https://your-default-image-url.com/default.jpg');
-        }
-      
-        // Check if images are empty (optional)
-        if (imageUrls.length === 0) {
-          console.warn('No images were uploaded, the auction will proceed without images.');
-          // You can decide whether to proceed with default values or just empty array
-        }
-      
-        // Insert the auction into Supabase with the image URLs
-        const { data, error } = await supabase
-          .from('auctions')
-          .insert({
-            title: dto.title,
-            description: dto.description ?? null,
-            condition: dto.condition,
-            starting_price: dto.startingPrice,
-            current_price: dto.startingPrice,
-            seller_id: String(dto.sellerId),
-            start_time: now.toISOString(),
-            end_time: dto.endTime,
-            status: 'active',  // Auction is active upon creation
-            highest_bidder_id: null,
-            winner_id: null,
-            bid_count: 0,
-            updated_at: new Date().toISOString(),
-            closed_at: null,
-            image_urls: imageUrls,  // Store the array of image URLs in the database
-          })
-          .select()
-          .single();
-      
-        // Handle any error from Supabase insertion
-        if (error || !data) {
-          throw new BadRequestException(error?.message || 'Failed to create realtime auction');
-        }
-      
-        // Map the data to the Auction object and return it
-        return this.mapAuction(data as AuctionRow);
+      dto: CreateRealtimeAuctionDto,
+      images: Express.Multer.File[],
+    ): Promise<{ auction: Auction; blockchainTransaction?: string; escrowAddress?: string }> {
+      const supabase = this.supabaseService.getClient();
+      const now = new Date();
+      const end = new Date(dto.endTime);
+    
+      if (end <= now) {
+        throw new BadRequestException('endTime must be in the future');
       }
+    
+      if (dto.bidMethod === 'SOL' && !dto.sellerWallet) {
+        throw new BadRequestException('sellerWallet is required for SOL auctions');
+      }
+    
+      const user = await this.getUserFromUserService(dto.sellerId);
+      if (user.role !== 'seller') {
+        throw new ForbiddenException('Only users with seller role can create auctions');
+      }
+    
+      // Upload images
+      const imageUrls: string[] = [];
+      if (images && images.length > 0) {
+        for (const image of images) {
+          try {
+            const imageUrl = await uploadImageToSupabase(image, this.supabaseService);
+            imageUrls.push(imageUrl);
+          } catch (error) {
+            console.error('Error uploading image:', error);
+            continue;
+          }
+        }
+      }
+    
+      // Insert auction into Supabase
+      const { data, error } = await supabase
+        .from('auctions')
+        .insert({
+          title: dto.title,
+          description: dto.description ?? null,
+          condition: dto.condition,
+          starting_price: dto.startingPrice,
+          current_price: dto.startingPrice,
+          seller_id: String(dto.sellerId),
+          start_time: now.toISOString(),
+          end_time: dto.endTime,
+          status: 'active',
+          highest_bidder_id: null,
+          winner_id: null,
+          bid_count: 0,
+          updated_at: new Date().toISOString(),
+          closed_at: null,
+          image_urls: imageUrls,
+          bid_method: dto.bidMethod,
+          escrow_address: null,
+          solana_auction_id: null,
+          sellerwallet: dto.sellerWallet ?? null,
+        })
+        .select()
+        .single();
+    
+      if (error || !data) {
+        throw new BadRequestException(error?.message || 'Failed to create realtime auction');
+      }
+    
+      const auction = this.mapAuction(data as AuctionRow);
+    
+      // ✅ SOL auction — call blockchain-service
+      if (dto.bidMethod === 'SOL') {
+        try {
+          const endTimeUnix = Math.floor(end.getTime() / 1000);
+    
+          // ✅ Truncate UUID to max 32 bytes for Solana PDA seed
+          const solanaAuctionId = auction.id!.replace(/-/g, '').substring(0, 32);
+    
+          const blockchainRes = await fetch(
+            `${process.env.BLOCKCHAIN_SERVICE_URL}/blockchain/createAuction`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                sellerWallet: dto.sellerWallet,
+                auctionId: solanaAuctionId,
+                minBidSol: dto.startingPrice,
+                endTime: endTimeUnix,
+              }),
+            },
+          );
+    
+          const blockchainData = await blockchainRes.json();
+    
+          if (blockchainData.error) {
+            // Rollback — delete auction from Supabase if blockchain fails
+            await supabase.from('auctions').delete().eq('id', auction.id);
+            throw new BadRequestException(`Blockchain error: ${blockchainData.error}`);
+          }
+    
+          // Save escrow address and solanaAuctionId to Supabase
+          await supabase
+            .from('auctions')
+            .update({
+              escrow_address: blockchainData.escrowAddress,
+              solana_auction_id: solanaAuctionId, // ✅ save for future bid references
+            })
+            .eq('id', auction.id);
+    
+          return {
+            auction: {
+              ...auction,
+              escrow_address: blockchainData.escrowAddress,
+              solana_auction_id: solanaAuctionId,
+            },
+            blockchainTransaction: blockchainData.transaction,
+            escrowAddress: blockchainData.escrowAddress,
+          };
+    
+        } catch (err) {
+          throw new BadRequestException('Failed to initialize blockchain auction: ' + err.message);
+        }
+      }
+    
+      // TND auction — return just the auction
+      return { auction };
+    }
       
   
       async createDraftAuction(
@@ -326,7 +371,11 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
           createdAt: row.created_at,
           updatedAt: row.updated_at ?? undefined,
           closedAt: row.closed_at ?? null,
-          image_urls: row.image_urls ?? [] 
+          image_urls: row.image_urls ?? [] ,
+          bidmethod:row.bid_method ??null ,
+          escrow_address: row.escrow_address ?? null,
+          sellerwallet:row.sellerwallet ?? null ,
+          solana_auction_id: row.solana_auction_id ?? null,
         };
       }
 
@@ -409,10 +458,10 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
         const user = await this.getUserFromUserService(currentUserId);
         const normalizedRole = String(user.role).trim().toLowerCase();
       
-        if (normalizedRole !== 'admin') {
+      /*  if (normalizedRole !== 'admin') {
           throw new ForbiddenException('Only admin can delete all auctions');
         }
-      
+      */
         const { data: existingAuctions, error: fetchError } = await this.supabaseService
           .getClient()
           .from('auctions')

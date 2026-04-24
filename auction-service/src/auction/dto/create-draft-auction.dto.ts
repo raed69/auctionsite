@@ -7,7 +7,7 @@ import {
   IsOptional,
   IsString,
   Min,
-  IsIn
+  IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -40,8 +40,19 @@ export class CreateDraftAuctionDto {
   @ArrayNotEmpty()
   images?: Express.Multer.File[];
 
-  @IsOptional()  // Makes condition optional, you can remove this if it's required
-  @IsIn(['new', 'like_new', 'used', 'damaged'], { message: 'condition must be one of the following values: new, like_new, used, damaged' })
-  condition?: 'new' | 'like_new' | 'used' | 'damaged';  // Adds condition with specific values
-}
+  @IsOptional()
+  @IsIn(['new', 'like_new', 'used', 'damaged'])
+  condition?: 'new' | 'like_new' | 'used' | 'damaged';
 
+  // ✅ Fixed typo: bidmethode → bidMethod + added validator
+  @IsOptional()
+  @IsIn(['TND', 'SOL'], {
+    message: 'Bid method must be either TND or SOL',
+  })
+  bidMethod?: 'TND' | 'SOL';
+
+  // ✅ NEW: required only for SOL auctions
+  @IsOptional()
+  @IsString()
+  sellerWallet?: string;
+}
