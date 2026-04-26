@@ -10,7 +10,7 @@ import {
   import { CreateRealtimeAuctionDto } from './dto/create-realtime-auction.dto';
   import { CreateDraftAuctionDto } from './dto/create-draft-auction.dto';
   import { SupabaseService } from '../supabase/supabase.service';
-  import type { Auction } from './interfaces/auction.interface';
+  import type { Auction, AuctionCategory } from './interfaces/auction.interface';
 import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
   
   interface UserResponse {
@@ -23,6 +23,7 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
     id: string;
     title: string;
     description: string | null;
+    category: AuctionCategory | null;
     image_urls?: string[];
     condition?: 'new' | 'like_new' | 'used' | 'damaged';
     starting_price: number | string;
@@ -91,6 +92,7 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
         .insert({
           title: dto.title,
           description: dto.description ?? null,
+          category: dto.category ?? null,
           condition: dto.condition,
           starting_price: dto.startingPrice,
           current_price: dto.startingPrice,
@@ -177,74 +179,84 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
     }
       
   
-      async createDraftAuction(
-        dto: CreateDraftAuctionDto,
-        images: Express.Multer.File[],  // Accept multiple images here
-      ): Promise<Auction> {
-        const supabase = this.supabaseService.getClient();
-        const now = new Date();
-        const start = new Date(dto.startTime);
-        const end = new Date(dto.endTime);
-      
-        // Ensure that the draft auction's start time is in the future
-        if (start <= now) {
-          throw new BadRequestException('For draft auctions, startTime must be in the future');
-        }
-      
-        // Ensure the auction's end time is greater than start time
-        if (end <= start) {
-          throw new BadRequestException('endTime must be greater than startTime');
-        }
-      
-        // Ensure the user has the 'seller' role
-        const user = await this.getUserFromUserService(dto.sellerId);
-        if (user.role !== 'seller') {
-          throw new ForbiddenException('Only users with seller role can create auctions');
-        }
-      
-        // Handle the image uploads and collect their URLs
-        const imageUrls: string[] = [];
-        console.log('Images to upload:', images);
-      
-        if (images && images.length > 0) {
-          for (const image of images) {
-            console.log('Uploading image:', image.originalname);  // Log the image being processed
-            const imageUrl = await uploadImageToSupabase(image, this.supabaseService);// Upload image and get URL
-            console.log('Uploaded image URL:', imageUrl);  // Log the URL of the uploaded image
-            imageUrls.push(imageUrl);  // Add the image URL to the array
+    async createDraftAuction(
+      dto: CreateDraftAuctionDto,
+      images: Express.Multer.File[],
+    ): Promise<Auction> {
+      const supabase = this.supabaseService.getClient();
+      const now = new Date();
+      const start = new Date(dto.startTime);
+      const end = new Date(dto.endTime);
+    
+      if (start <= now) {
+        throw new BadRequestException('For draft auctions, startTime must be in the future');
+      }
+    
+      if (end <= start) {
+        throw new BadRequestException('endTime must be greater than startTime');
+      }
+    
+      // Validate SOL requirements
+      if (dto.bidMethod === 'SOL' && !dto.sellerWallet) {
+        throw new BadRequestException('sellerWallet is required for SOL auctions');
+      }
+    
+      const user = await this.getUserFromUserService(dto.sellerId);
+      if (user.role !== 'seller') {
+        throw new ForbiddenException('Only users with seller role can create auctions');
+      }
+    
+      // Upload images
+      const imageUrls: string[] = [];
+      if (images && images.length > 0) {
+        for (const image of images) {
+          try {
+            const imageUrl = await uploadImageToSupabase(image, this.supabaseService);
+            imageUrls.push(imageUrl);
+          } catch (error) {
+            console.error('Error uploading image:', error);
+            continue;
           }
         }
-      
-        // Insert the auction into Supabase with the image URLs
-        const { data, error } = await supabase
-          .from('auctions')
-          .insert({
-            title: dto.title,
-            description: dto.description ?? null,
-            condition: dto.condition,
-            starting_price: dto.startingPrice,
-            current_price: dto.startingPrice,
-            seller_id: String(dto.sellerId),
-            start_time: dto.startTime,
-            end_time: dto.endTime,
-            status: 'draft',  // Set the auction status to 'draft'
-            highest_bidder_id: null,
-            winner_id: null,
-            bid_count: 0,
-            updated_at: new Date().toISOString(),
-            closed_at: null,
-            image_urls: imageUrls,  // Store the array of image URLs in the database
-          })
-          .select()
-          .single();
-      
-        // Handle any error from Supabase insertion
-        if (error || !data) {
-          throw new BadRequestException(error?.message || 'Failed to create draft auction');
-        }
-      
-        return this.mapAuction(data as AuctionRow);  // Return the mapped auction data
       }
+    
+      // Insert auction into Supabase — NO blockchain call yet
+      const { data, error } = await supabase
+        .from('auctions')
+        .insert({
+          title: dto.title,
+          description: dto.description ?? null,
+          category: dto.category ?? null,
+          condition: dto.condition,
+          starting_price: dto.startingPrice,
+          current_price: dto.startingPrice,
+          seller_id: String(dto.sellerId),
+          start_time: dto.startTime,
+          end_time: dto.endTime,
+          status: 'draft',
+          highest_bidder_id: null,
+          winner_id: null,
+          bid_count: 0,
+          updated_at: new Date().toISOString(),
+          closed_at: null,
+          image_urls: imageUrls,
+          bid_method: dto.bidMethod ?? 'TND',
+          escrow_address: null,
+          solana_auction_id: null,
+          sellerwallet: dto.sellerWallet ?? null, // saved for later when scheduler activates
+        })
+        .select()
+        .single();
+    
+      if (error || !data) {
+        throw new BadRequestException(error?.message || 'Failed to create draft auction');
+      }
+    
+      // ✅ No blockchain call here — scheduler will handle it when startTime is reached
+      return this.mapAuction(data as AuctionRow);
+    }
+
+
     async getAllAuctions(): Promise<Auction[]> {
         const { data, error } = await this.supabaseService
           .getClient()
@@ -356,6 +368,7 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
           id: row.id,
           title: row.title,
           description: row.description ?? undefined,
+          category: (row.category as AuctionCategory | null) ?? undefined,      
           starting_price: Number(row.starting_price),
           current_price: Number(row.current_price),
           seller_id: row.seller_id,

@@ -1,7 +1,18 @@
+export type AuctionCategory =
+  | 'art'
+  | 'collectibles'
+  | 'electronics'
+  | 'jewelry'
+  | 'furniture'
+  | 'vehicles'
+  | 'fashion'
+  | 'pets_and_animals';
+
 export interface Auction {
   id?: string;
   title: string;
   description?: string;
+  category?: AuctionCategory;
   image_urls?: string[];
   starting_price: number;
   current_price: number;

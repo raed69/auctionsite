@@ -49,7 +49,7 @@ export class AuctionController {
     @Body() dto: CreateRealtimeAuctionDto,
     @UploadedFiles() images: Express.Multer.File[],
   ) {
-    console.log('=== RAW BODY ===', dto);  // ← add this
+    console.log('=== RAW BODY ===', dto); // ← add this
     return await this.auctionService.createRealtimeAuction(dto, images);
   }
   @Post('draft')
@@ -60,8 +60,9 @@ export class AuctionController {
   )
   async createDraftAuction(
     @Body() dto: CreateDraftAuctionDto,
-    @UploadedFiles() images: Express.Multer.File[] = [],
+    @UploadedFiles() images: Express.Multer.File[],
   ) {
+    console.log('=== RAW BODY ===', dto);
     return await this.auctionService.createDraftAuction(dto, images);
   }
 

@@ -8,9 +8,24 @@ import {
   IsArray,
   ArrayNotEmpty,
   IsIn,
+  IsEnum,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { IsRequiredIf } from 'src/common/decorators/is-required-if.decorator';
+
+export const AUCTION_CATEGORIES = [
+  'art',
+  'collectibles',
+  'electronics',
+  'jewelry',
+  'furniture',
+  'vehicles',
+  'fashion',
+  'pets_and_animals',
+] as const;
+
+export type AuctionCategory = (typeof AUCTION_CATEGORIES)[number];
+
 
 export class CreateRealtimeAuctionDto {
   @IsString()
@@ -20,6 +35,10 @@ export class CreateRealtimeAuctionDto {
   @IsString()
   @IsOptional()
   description?: string;
+
+  @IsOptional()
+  @IsEnum(AUCTION_CATEGORIES)
+  category?: AuctionCategory;
 
   @Type(() => Number)
   @IsNumber()
