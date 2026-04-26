@@ -13,5 +13,6 @@ export interface User {
     profile_picture_url?: string;
     last_login?: string;
     signup_date: string;
+    phantom_wallet_address?: string | null;
   }
   

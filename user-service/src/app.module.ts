@@ -11,7 +11,7 @@ import { AuthModule } from './auth/auth.module';
       envFilePath: '.env', // 👈 Make sure this file exists in user-service
     }),
     UserModule,
-    AuthModule
+    AuthModule 
   ]
  
 })
