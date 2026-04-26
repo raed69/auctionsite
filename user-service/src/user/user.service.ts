@@ -1,8 +1,10 @@
 import {
   Injectable,
   BadRequestException,
-  UnauthorizedException,
+  NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
+<<<<<<< HEAD
 import { ConfigService } from '@nestjs/config';
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { supabase } from '../supabase/supabase.client';
@@ -39,9 +41,23 @@ export class UserService {
     const password_hash = await bcrypt.hash(dto.password, 10);
     const email_verification_token = randomBytes(32).toString('hex');
     const email_verification_expiry = new Date(Date.now() + 3600 * 1000);
+=======
+import { supabase }          from '../supabase/supabase.client';
+import { UpdateProfileDto }  from './dto/update-profile.dto';
+import { PublicUser }        from './user.schema';
+import { Role }              from '../common/enums/role.enum';
+import { AuthenticatedUser } from '../common/types/jwt.types';
 
+@Injectable()
+export class UserService {
+
+  // ─── GET PROFILE ─────────────────────────────────────────────────────────────
+>>>>>>> origin/feature/user-service-amina
+
+  async getProfile(userId: string): Promise<PublicUser> {
     const { data, error } = await supabase
       .from('users')
+<<<<<<< HEAD
       .insert([
         {
           first_name: dto.first_name,
@@ -56,22 +72,17 @@ export class UserService {
         },
       ])
       .select()
+=======
+      .select('id, first_name, last_name, email, email_verified, role, balance, shipping_address, profile_picture_url, last_login, signup_date')
+      .eq('id', userId)
+>>>>>>> origin/feature/user-service-amina
       .single();
 
-    if (error) throw new BadRequestException(error.message);
-
-    return {
-      message: 'Registration successful. Please verify your email.',
-      user: {
-        id: data.id,
-        first_name: data.first_name,
-        last_name: data.last_name,
-        email: data.email,
-        role: data.role,
-      },
-    };
+    if (error || !data) throw new NotFoundException('User not found');
+    return data as PublicUser;
   }
 
+<<<<<<< HEAD
   // ──────────────────── LOGIN ────────────────────
   async login(dto: LoginDto) {
     const { data: user } = await supabase
@@ -79,20 +90,21 @@ export class UserService {
       .select('*')
       .eq('email', dto.email)
       .single();
+=======
+  // ─── UPDATE PROFILE ───────────────────────────────────────────────────────────
+>>>>>>> origin/feature/user-service-amina
 
-    if (!user) throw new UnauthorizedException('Invalid email or password');
-
-    const isPasswordValid = await bcrypt.compare(
-      dto.password,
-      user.password_hash,
-    );
-    if (!isPasswordValid)
-      throw new UnauthorizedException('Invalid email or password');
-
-    if (!user.email_verified) {
-      throw new UnauthorizedException('Please verify your email first');
+  async updateProfile(
+    targetId:  string,
+    dto:       UpdateProfileDto,
+    requester: AuthenticatedUser,
+  ): Promise<{ message: string }> {
+    // Users can only update their own profile (admins can update anyone's)
+    if (requester.userId !== targetId && requester.role !== Role.ADMIN) {
+      throw new ForbiddenException('You can only update your own profile');
     }
 
+<<<<<<< HEAD
     return {
       message: 'Login successful',
       user: {
@@ -142,12 +154,24 @@ export class UserService {
         last_name: dto.last_name,
       })
       .eq('id', userId);
+=======
+    const updates: Partial<UpdateProfileDto> = {};
+    if (dto.first_name)       updates.first_name       = dto.first_name;
+    if (dto.last_name)        updates.last_name        = dto.last_name;
+    if (dto.shipping_address) updates.shipping_address = dto.shipping_address;
+
+    const { error } = await supabase
+      .from('users')
+      .update(updates)
+      .eq('id', targetId);
+>>>>>>> origin/feature/user-service-amina
 
     if (error) throw new BadRequestException(error.message);
 
     return { message: 'Profile updated successfully' };
   }
 
+<<<<<<< HEAD
   // ──────────────────── REQUEST SELLER UPGRADE ────────────────────
   async requestSellerUpgrade(userId: string) {
     const { data: existingRequest } = await supabase
@@ -155,27 +179,51 @@ export class UserService {
       .select('*')
       .eq('request_owner', userId)
       .eq('status', 'pending')
+=======
+  // ─── REQUEST SELLER UPGRADE ──────────────────────────────────────────────────
+
+  async requestSellerUpgrade(userId: string): Promise<{ message: string }> {
+    // Check current role
+    const { data: user } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', userId)
+>>>>>>> origin/feature/user-service-amina
       .single();
 
-    if (existingRequest) {
-      throw new BadRequestException(
-        'You already have a pending seller request',
-      );
-    }
+    if (!user) throw new NotFoundException('User not found');
+    if (user.role === Role.SELLER) throw new BadRequestException('You are already a seller');
+    if (user.role === Role.ADMIN)  throw new ForbiddenException('Admins cannot request seller upgrade');
 
+<<<<<<< HEAD
     const { error } = await supabase.from('seller_requests').insert([
       {
+=======
+    // Check for existing pending request
+    const { data: existing } = await supabase
+      .from('seller_requests')
+      .select('id')
+      .eq('request_owner', userId)
+      .eq('status', 'pending')
+      .maybeSingle();
+
+    if (existing) throw new BadRequestException('You already have a pending seller request');
+
+    const { error } = await supabase
+      .from('seller_requests')
+      .insert({
+>>>>>>> origin/feature/user-service-amina
         request_owner: userId,
-        requested_at: new Date(),
-        status: 'pending',
-      },
-    ]);
+        status:        'pending',
+        requested_at:  new Date().toISOString(),
+      });
 
     if (error) throw new BadRequestException(error.message);
 
     return { message: 'Seller request submitted. Waiting for admin approval.' };
   }
 
+<<<<<<< HEAD
   // ──────────────────── GET USER BY ID ────────────────────
   async getUserById(userId: string) {
     const { data, error } = await supabase
@@ -362,11 +410,30 @@ export class UserService {
     const { error: userError } = await supabase
       .from('users')
       .update({ role: 'seller' })
+=======
+  // ─── ADMIN: APPROVE SELLER ───────────────────────────────────────────────────
+
+  async approveSeller(requestId: string): Promise<{ message: string }> {
+    const { data: request, error: fetchError } = await supabase
+      .from('seller_requests')
+      .select('*')
+      .eq('id', requestId)
+      .single();
+
+    if (fetchError || !request) throw new NotFoundException('Seller request not found');
+    if (request.status !== 'pending') throw new BadRequestException('Request already processed');
+
+    // Promote user to seller
+    const { error: userError } = await supabase
+      .from('users')
+      .update({ role: Role.SELLER })
+>>>>>>> origin/feature/user-service-amina
       .eq('id', request.request_owner);
 
     if (userError) throw new BadRequestException(userError.message);
 
     // Mark request as approved
+<<<<<<< HEAD
     const { error: requestError } = await supabase
       .from('seller_requests')
       .update({ status: 'approved', resolved_at: new Date().toISOString() })
@@ -411,5 +478,33 @@ export class UserService {
 
     if (error) throw new BadRequestException(error.message);
     return data;
+=======
+    await supabase
+      .from('seller_requests')
+      .update({ status: 'approved', processed_at: new Date().toISOString() })
+      .eq('id', requestId);
+
+    return { message: 'Seller request approved. User is now a seller.' };
+>>>>>>> origin/feature/user-service-amina
+  }
+
+  // ─── ADMIN: REJECT SELLER ────────────────────────────────────────────────────
+
+  async rejectSeller(requestId: string): Promise<{ message: string }> {
+    const { data: request, error: fetchError } = await supabase
+      .from('seller_requests')
+      .select('id, status')
+      .eq('id', requestId)
+      .single();
+
+    if (fetchError || !request) throw new NotFoundException('Seller request not found');
+    if (request.status !== 'pending') throw new BadRequestException('Request already processed');
+
+    await supabase
+      .from('seller_requests')
+      .update({ status: 'rejected', processed_at: new Date().toISOString() })
+      .eq('id', requestId);
+
+    return { message: 'Seller request rejected.' };
   }
 }

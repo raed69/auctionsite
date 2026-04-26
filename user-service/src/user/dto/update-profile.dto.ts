@@ -12,4 +12,8 @@ export class UpdateProfileDto {
   @MinLength(2)
   @MaxLength(30)
   last_name?: string;
+
+  @IsOptional()
+  @IsString()
+  shipping_address?: string;
 }

@@ -1,129 +1,109 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
-import { supabase } from 'src/supabase/supabase.client';
+import { ConfigService }                      from '@nestjs/config';
+import { AuthService }                        from './auth.service';
+import { supabase }                           from '../supabase/supabase.client';
+import { Role }                               from '../common/enums/role.enum';
 
 @Injectable()
 export class AuthGoogleService {
   constructor(
-    private jwtService: JwtService,
-    private configService: ConfigService,
+    private readonly authService: AuthService,
+    private readonly config:      ConfigService,
   ) {}
 
-  // Get Google OAuth URL
-  getGoogleAuthUrl() {
-    const redirectUrl = this.configService.get<string>('GOOGLE_CALLBACK_URL');
-    const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
-    
-    if (!redirectUrl || !supabaseUrl) {
-      throw new Error('Missing environment variables: GOOGLE_CALLBACK_URL or SUPABASE_URL');
-    }
-    
-    // TypeScript now knows these are strings (not undefined)
-    const encodedRedirectUrl = encodeURIComponent(redirectUrl);
-    
+  // ─── STEP 1: Redirect URL ────────────────────────────────────────────────────
+
+  getGoogleAuthUrl(): { url: string } {
+    const redirectUrl   = this.config.getOrThrow<string>('GOOGLE_CALLBACK_URL');
+    const supabaseUrl   = this.config.getOrThrow<string>('SUPABASE_URL');
+    const encodedRedirect = encodeURIComponent(redirectUrl);
+
     return {
-      url: `${supabaseUrl}/auth/v1/authorize?provider=google&redirect_to=${encodedRedirectUrl}`,
+      url: `${supabaseUrl}/auth/v1/authorize?provider=google&redirect_to=${encodedRedirect}`,
     };
   }
 
-  // Handle Google OAuth callback
+  // ─── STEP 2: Handle callback ─────────────────────────────────────────────────
+
   async handleGoogleCallback(code: string) {
-    try {
-      const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
-      if (error) {
-        throw new UnauthorizedException('Google authentication failed: ' + error.message);
-      }
-
-      const { user: supabaseUser } = data;
-      const user = await this.saveOrUpdateUser(supabaseUser);
-      const accessToken = this.generateJwtToken(user);
-
-      return {
-        message: 'Google Sign-in successful',
-        user: {
-          id: user.id,
-          email: user.email,
-          first_name: user.first_name,
-          last_name: user.last_name,
-          role: user.role,
-          profile_picture_url: user.profile_picture_url,
-        },
-        accessToken,
-      };
-    } catch (error: any) {
-      throw new UnauthorizedException('Failed to authenticate: ' + error.message);
+    if (error) {
+      throw new UnauthorizedException('Google authentication failed: ' + error.message);
     }
+
+    const supabaseUser = data.user;
+    const user         = await this.upsertGoogleUser(supabaseUser);
+    const accessToken  = this.authService.signToken(user);
+
+    return {
+      message:     'Google sign-in successful',
+      user:        {
+        id:                  user.id,
+        email:               user.email,
+        first_name:          user.first_name,
+        last_name:           user.last_name,
+        role:                user.role,
+        profile_picture_url: user.profile_picture_url,
+      },
+      accessToken,
+    };
   }
 
-  private async saveOrUpdateUser(supabaseUser: any) {
-    const { data: existingUser } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', supabaseUser.id)
-      .single();
+  // ─── UPSERT ──────────────────────────────────────────────────────────────────
 
-    const fullName = supabaseUser.user_metadata?.full_name || 
-                     supabaseUser.user_metadata?.name || 
-                     supabaseUser.email.split('@')[0];
-    
-    const nameParts = fullName.split(' ');
-    const firstName = nameParts[0] || 'User';
-    const lastName = nameParts.slice(1).join(' ') || '';
+  private async upsertGoogleUser(supabaseUser: any) {
+    const fullName  = supabaseUser.user_metadata?.full_name
+                   ?? supabaseUser.user_metadata?.name
+                   ?? supabaseUser.email.split('@')[0];
 
-    const userData = {
-      id: supabaseUser.id,
-      email: supabaseUser.email,
-      first_name: firstName,
-      last_name: lastName,
-      profile_picture_url: supabaseUser.user_metadata?.avatar_url || 
-                          supabaseUser.user_metadata?.picture || null,
-      last_login: new Date().toISOString(),
+    const [firstName, ...rest] = fullName.split(' ');
+
+    const commonFields = {
+      id:                  supabaseUser.id,
+      email:               supabaseUser.email,
+      first_name:          firstName || 'User',
+      last_name:           rest.join(' ') || '',
+      profile_picture_url: supabaseUser.user_metadata?.avatar_url
+                        ?? supabaseUser.user_metadata?.picture
+                        ?? null,
+      email_verified:      true,
+      last_login:          new Date().toISOString(),
     };
 
-    if (existingUser) {
-      const { data: updatedUser, error } = await supabase
+    const { data: existing } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', supabaseUser.id)
+      .maybeSingle();
+
+    if (existing) {
+      const { data, error } = await supabase
         .from('users')
-        .update({
-          ...userData,
-          email_verified: true,
-        })
+        .update(commonFields)
         .eq('id', supabaseUser.id)
         .select()
         .single();
 
-      if (error) throw error;
-      return updatedUser;
-    } else {
-      const { data: newUser, error } = await supabase
-        .from('users')
-        .insert({
-          ...userData,
-          role: 'user',
-          balance: 0,
-          email_verified: true,
-          email_verification_token: null,
-          email_verification_expiry: null,
-          password_hash: '',
-          signup_date: new Date().toISOString(),
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-      return newUser;
+      if (error) throw new UnauthorizedException(error.message);
+      return data;
     }
-  }
 
-  private generateJwtToken(user: any) {
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      first_name: user.first_name,
-      last_name: user.last_name,
-    };
-    return this.jwtService.sign(payload);
+    const { data, error } = await supabase
+      .from('users')
+      .insert({
+        ...commonFields,
+        role:                      Role.BUYER,
+        balance:                   0,
+        password:             '',
+        email_verification_token:  null,
+        email_verification_expiry: null,
+        signup_date:               new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (error) throw new UnauthorizedException(error.message);
+    return data;
   }
 }
