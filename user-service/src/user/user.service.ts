@@ -1,183 +1,141 @@
 import {
   Injectable,
   BadRequestException,
-  UnauthorizedException,
+  NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
-import { supabase } from '../supabase/supabase.client';
-import * as bcrypt from 'bcryptjs';
-import { randomBytes } from 'crypto';
-import { RegisterDto } from './dto/register.dto';
-import { LoginDto } from './dto/login.dto';
-import { UpdateProfileDto } from './dto/update-profile.dto';
+import { supabase }          from '../supabase/supabase.client';
+import { UpdateProfileDto }  from './dto/update-profile.dto';
+import { PublicUser }        from './user.schema';
+import { Role }              from '../common/enums/role.enum';
+import { AuthenticatedUser } from '../common/types/jwt.types';
 
 @Injectable()
 export class UserService {
-  // ---------------- REGISTER ----------------
-  async register(dto: RegisterDto) {
-    const { data: existingUser } = await supabase
-      .from('users')
-      .select('id')
-      .eq('email', dto.email)
-      .single();
 
-    if (existingUser) {
-      throw new BadRequestException('Email already exists');
-    }
+  // ─── GET PROFILE ─────────────────────────────────────────────────────────────
 
-    const password_hash = await bcrypt.hash(dto.password, 10);
-
-    const email_verification_token = randomBytes(32).toString('hex');
-    const email_verification_expiry = new Date(Date.now() + 3600 * 1000); // 1h
-
+  async getProfile(userId: string): Promise<PublicUser> {
     const { data, error } = await supabase
       .from('users')
-      .insert([
-        {
-          first_name: dto.first_name,
-          last_name: dto.last_name,
-          email: dto.email,
-          password_hash,
-          email_verified: false,
-          email_verification_token,
-          email_verification_expiry,
-          role: 'buyer', // default role
-          signup_date: new Date(),
-        },
-      ])
-      .select()
+      .select('id, first_name, last_name, email, email_verified, role, balance, shipping_address, profile_picture_url, last_login, signup_date')
+      .eq('id', userId)
       .single();
 
-    if (error) throw new BadRequestException(error.message);
-
-    return {
-      message: 'Registration successful. Please verify your email.',
-      user: {
-        id: data.id,
-        first_name: data.first_name,
-        last_name: data.last_name,
-        email: data.email,
-        role: data.role,
-      },
-    };
+    if (error || !data) throw new NotFoundException('User not found');
+    return data as PublicUser;
   }
 
-  // ---------------- LOGIN ----------------
-  async login(dto: LoginDto) {
-    const { data: user } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', dto.email)
-      .single();
+  // ─── UPDATE PROFILE ───────────────────────────────────────────────────────────
 
-    if (!user) throw new UnauthorizedException('Invalid email or password');
-
-    const isPasswordValid = await bcrypt.compare(
-      dto.password,
-      user.password_hash,
-    );
-    if (!isPasswordValid)
-      throw new UnauthorizedException('Invalid email or password');
-
-    if (!user.email_verified) {
-      throw new UnauthorizedException('Please verify your email first');
+  async updateProfile(
+    targetId:  string,
+    dto:       UpdateProfileDto,
+    requester: AuthenticatedUser,
+  ): Promise<{ message: string }> {
+    // Users can only update their own profile (admins can update anyone's)
+    if (requester.userId !== targetId && requester.role !== Role.ADMIN) {
+      throw new ForbiddenException('You can only update your own profile');
     }
 
-    return {
-      message: 'Login successful',
-      user: {
-        id: user.id,
-        first_name: user.first_name,
-        last_name: user.last_name,
-        email: user.email,
-        role: user.role,
-      },
-    };
-  }
-
-  // ---------------- VERIFY EMAIL ----------------
-  async verifyEmail(token: string) {
-    const { data: user } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email_verification_token', token)
-      .single();
-
-    if (!user) throw new BadRequestException('Invalid verification token');
-
-    if (new Date() > new Date(user.email_verification_expiry)) {
-      throw new BadRequestException('Verification token expired');
-    }
+    const updates: Partial<UpdateProfileDto> = {};
+    if (dto.first_name)       updates.first_name       = dto.first_name;
+    if (dto.last_name)        updates.last_name        = dto.last_name;
+    if (dto.shipping_address) updates.shipping_address = dto.shipping_address;
 
     const { error } = await supabase
       .from('users')
-      .update({
-        email_verified: true,
-        email_verification_token: null,
-        email_verification_expiry: null,
-      })
-      .eq('id', user.id);
-
-    if (error) throw new BadRequestException(error.message);
-
-    return { message: 'Email verified successfully' };
-  }
-
-  // ---------------- UPDATE PROFILE ----------------
-  async updateProfile(userId: string, dto: UpdateProfileDto) {
-    const { error } = await supabase
-      .from('users')
-      .update({
-        first_name: dto.first_name,
-        last_name: dto.last_name,
-      })
-      .eq('id', userId);
+      .update(updates)
+      .eq('id', targetId);
 
     if (error) throw new BadRequestException(error.message);
 
     return { message: 'Profile updated successfully' };
   }
 
-  // ---------------- CHANGE ROLE (Buyer → Seller) ----------------
-  async requestSellerUpgrade(userId: string) {
-    // Vérifier si une demande déjà en attente existe
-    const { data: existingRequest } = await supabase
-      .from('seller_requests')
-      .select('*')
-      .eq('request_owner', userId)
-      .eq('status', 'pending')
+  // ─── REQUEST SELLER UPGRADE ──────────────────────────────────────────────────
+
+  async requestSellerUpgrade(userId: string): Promise<{ message: string }> {
+    // Check current role
+    const { data: user } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', userId)
       .single();
 
-    if (existingRequest) {
-      throw new BadRequestException(
-        'You already have a pending seller request',
-      );
-    }
+    if (!user) throw new NotFoundException('User not found');
+    if (user.role === Role.SELLER) throw new BadRequestException('You are already a seller');
+    if (user.role === Role.ADMIN)  throw new ForbiddenException('Admins cannot request seller upgrade');
 
-    // Insérer une nouvelle demande
-    const { error } = await supabase.from('seller_requests').insert([
-      {
+    // Check for existing pending request
+    const { data: existing } = await supabase
+      .from('seller_requests')
+      .select('id')
+      .eq('request_owner', userId)
+      .eq('status', 'pending')
+      .maybeSingle();
+
+    if (existing) throw new BadRequestException('You already have a pending seller request');
+
+    const { error } = await supabase
+      .from('seller_requests')
+      .insert({
         request_owner: userId,
-        requested_at: new Date(),
-        status: 'pending',
-      },
-    ]);
+        status:        'pending',
+        requested_at:  new Date().toISOString(),
+      });
 
     if (error) throw new BadRequestException(error.message);
 
     return { message: 'Seller request submitted. Waiting for admin approval.' };
   }
 
-  async getUserById(userId: string) {
-    const { data, error } = await supabase
-      .from('users')
-      .select('id, role')
-      .eq('id', userId)
+  // ─── ADMIN: APPROVE SELLER ───────────────────────────────────────────────────
+
+  async approveSeller(requestId: string): Promise<{ message: string }> {
+    const { data: request, error: fetchError } = await supabase
+      .from('seller_requests')
+      .select('*')
+      .eq('id', requestId)
       .single();
 
-    if (error || !data) {
-      throw new BadRequestException('User not found');
-    }
+    if (fetchError || !request) throw new NotFoundException('Seller request not found');
+    if (request.status !== 'pending') throw new BadRequestException('Request already processed');
 
-    return data;
+    // Promote user to seller
+    const { error: userError } = await supabase
+      .from('users')
+      .update({ role: Role.SELLER })
+      .eq('id', request.request_owner);
+
+    if (userError) throw new BadRequestException(userError.message);
+
+    // Mark request as approved
+    await supabase
+      .from('seller_requests')
+      .update({ status: 'approved', processed_at: new Date().toISOString() })
+      .eq('id', requestId);
+
+    return { message: 'Seller request approved. User is now a seller.' };
+  }
+
+  // ─── ADMIN: REJECT SELLER ────────────────────────────────────────────────────
+
+  async rejectSeller(requestId: string): Promise<{ message: string }> {
+    const { data: request, error: fetchError } = await supabase
+      .from('seller_requests')
+      .select('id, status')
+      .eq('id', requestId)
+      .single();
+
+    if (fetchError || !request) throw new NotFoundException('Seller request not found');
+    if (request.status !== 'pending') throw new BadRequestException('Request already processed');
+
+    await supabase
+      .from('seller_requests')
+      .update({ status: 'rejected', processed_at: new Date().toISOString() })
+      .eq('id', requestId);
+
+    return { message: 'Seller request rejected.' };
   }
 }
