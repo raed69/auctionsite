@@ -1,17 +1,20 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Resend }        from 'resend';
+import { Resend } from 'resend';
 
 @Injectable()
 export class MailService {
-  private resend:   Resend;
-  private from:     string;
-  private appUrl:   string;
+  private resend: Resend;
+  private from: string;
+  private appUrl: string;
 
   constructor(private readonly config: ConfigService) {
-    this.resend  = new Resend(config.getOrThrow<string>('RESEND_API_KEY'));
-    this.from    = config.get<string>('MAIL_FROM')  ?? 'onboarding@resend.dev';
-    this.appUrl  = config.get<string>('APP_URL')    ?? 'http://localhost:3001';
+    this.resend = new Resend(config.getOrThrow<string>('RESEND_API_KEY'));
+    this.from = config.get<string>('MAIL_FROM') ?? 'onboarding@resend.dev';
+    this.appUrl = config.get<string>('APP_URL') ?? 'http://localhost:3001';
   }
 
   // ─── Verification email ───────────────────────────────────────────────────
@@ -20,10 +23,10 @@ export class MailService {
     const link = `${this.appUrl}/auth/verify-email?token=${token}`;
 
     const { error } = await this.resend.emails.send({
-      from:    this.from,
+      from: this.from,
       to,
       subject: 'Verify your Curator account',
-      html:    this.verificationTemplate(firstName, link),
+      html: this.verificationTemplate(firstName, link),
     });
 
     if (error) {
@@ -39,10 +42,10 @@ export class MailService {
     const link = `${this.appUrl}/auth/reset-password?token=${token}`;
 
     const { error } = await this.resend.emails.send({
-      from:    this.from,
+      from: this.from,
       to,
       subject: 'Reset your Curator password',
-      html:    this.passwordResetTemplate(firstName, link),
+      html: this.passwordResetTemplate(firstName, link),
     });
 
     if (error) {

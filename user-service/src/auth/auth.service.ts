@@ -1,10 +1,3 @@
-<<<<<<< HEAD
-import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { supabase } from '../supabase/supabase.client';
-import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcryptjs';
-import * as crypto from 'crypto';
-=======
 import {
   Injectable,
   BadRequestException,
@@ -19,22 +12,14 @@ import { RegisterDto } from '../user/dto/register.dto';
 import { LoginDto }    from '../user/dto/login.dto';
 import * as bcrypt     from 'bcryptjs';
 import * as crypto     from 'crypto';
->>>>>>> origin/feature/user-service-amina
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly jwtService:  JwtService,
-    private readonly mailService: MailService,   // ← injected
+    private readonly mailService: MailService,
   ) {}
 
-<<<<<<< HEAD
-  // ──────────── REGISTER ────────────
-  async register(dto: any) {
-    const hashed = await bcrypt.hash(dto.password, 10);
-    const emailToken = crypto.randomUUID();
-    const expiry = new Date(Date.now() + 1000 * 60 * 60 * 24);
-=======
   // ─── REGISTER ────────────────────────────────────────────────────────────────
 
   async register(dto: RegisterDto) {
@@ -44,29 +29,18 @@ export class AuthService {
       .select('id')
       .eq('email', dto.email)
       .maybeSingle();
->>>>>>> origin/feature/user-service-amina
 
     if (existing) throw new BadRequestException('Email already in use');
 
     // 2. Hash password & generate verification token
-    const password                   = await bcrypt.hash(dto.password, 10);
-    const email_verification_token   = crypto.randomBytes(32).toString('hex');
-    const email_verification_expiry  = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+    const password                  = await bcrypt.hash(dto.password, 10);
+    const email_verification_token  = crypto.randomBytes(32).toString('hex');
+    const email_verification_expiry = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
 
     // 3. Insert user
     const { data: user, error } = await supabase
       .from('users')
       .insert({
-<<<<<<< HEAD
-        first_name: dto.first_name,
-        last_name: dto.last_name,
-        email: dto.email,
-        password: hashed, // ← fixed column name
-        email_verified: false,
-        email_verification_token: emailToken,
-        email_verification_expiry: expiry,
-        role: 'buyer', // ← default role
-=======
         first_name:                dto.first_name,
         last_name:                 dto.last_name,
         email:                     dto.email,
@@ -77,37 +51,12 @@ export class AuthService {
         role:                      Role.BUYER,
         balance:                   0,
         signup_date:               new Date().toISOString(),
->>>>>>> origin/feature/user-service-amina
       })
       .select()
       .single();
 
     if (error) throw new BadRequestException(error.message);
 
-<<<<<<< HEAD
-    const token = this.jwtService.sign({
-      sub: data.id,
-      email: data.email,
-      role: data.role, // ← include role
-    });
-
-    return {
-      message: 'Registered successfully',
-      user: {
-        id: data.id,
-        email: data.email,
-        first_name: data.first_name,
-        last_name: data.last_name,
-        role: data.role,
-      },
-      token,
-    };
-  }
-
-  // ──────────── LOGIN ────────────
-  async login(dto: any) {
-    const { data, error } = await supabase
-=======
     // 4. Send verification email (non-blocking)
     try {
       await this.mailService.sendVerificationEmail(
@@ -129,37 +78,11 @@ export class AuthService {
 
   async login(dto: LoginDto) {
     const { data: user } = await supabase
->>>>>>> origin/feature/user-service-amina
       .from('users')
       .select('*')
       .eq('email', dto.email)
       .maybeSingle();
 
-<<<<<<< HEAD
-    if (error || !data) throw new UnauthorizedException('User not found');
-
-    const valid = await bcrypt.compare(dto.password, data.password); // ← fixed
-    if (!valid) throw new UnauthorizedException('Incorrect password');
-
-    const token = this.jwtService.sign({
-      sub: data.id,
-      email: data.email,
-      role: data.role, // ← include role in token
-    });
-
-    return {
-      message: 'Login successful',
-      user: {
-        id: data.id,
-        email: data.email,
-        first_name: data.first_name,
-        last_name: data.last_name,
-        role: data.role,
-      },
-      token,
-    };
-  }
-=======
     if (!user) throw new UnauthorizedException('Invalid email or password');
 
     const valid = await bcrypt.compare(dto.password, user.password);
@@ -227,5 +150,4 @@ export class AuthService {
     const { password, email_verification_token, email_verification_expiry, ...safe } = user;
     return safe;
   }
->>>>>>> origin/feature/user-service-amina
 }
