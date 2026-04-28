@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import {
   Body,
   Controller,
@@ -6,63 +7,50 @@ import {
   Param,
   Patch,
   Post,
+  Request,
   UploadedFiles,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { IsNotEmpty, IsString } from 'class-validator';
 import { FilesInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { AuctionService } from './auction.service';
 import { CreateRealtimeAuctionDto } from './dto/create-realtime-auction.dto';
 import { CreateDraftAuctionDto } from './dto/create-draft-auction.dto';
+
 import type { Auction } from './interfaces/auction.interface';
-import { memoryStorage } from 'multer';
-
-class CloseAuctionDto {
-  @IsString()
-  @IsNotEmpty()
-  userId: string;
-}
-
-class DeleteAuctionDto {
-  @IsString()
-  @IsNotEmpty()
-  userId: string;
-}
-
-class DeleteAllAuctionsDto {
-  @IsString()
-  @IsNotEmpty()
-  userId: string;
-}
+import { JwtAuthGuard } from './auth/jwt-auth.guard';
+import { RolesGuard } from './auth/roles.guard';
+import { Roles } from './auth/roles.decorator';
 
 @Controller('auctions')
 export class AuctionController {
   constructor(private readonly auctionService: AuctionService) {}
 
   @Post('realtime')
-  @UseInterceptors(
-    FilesInterceptor('images', 10, {
-      storage: memoryStorage(),
-    }),
-  )
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('seller')
+  @UseInterceptors(FilesInterceptor('images', 10, { storage: memoryStorage() }))
   async createRealtimeAuction(
     @Body() dto: CreateRealtimeAuctionDto,
     @UploadedFiles() images: Express.Multer.File[],
+    @Request() req, // ← get token
   ) {
-    console.log('=== RAW BODY ===', dto); // ← add this
+    console.log('JWT USER:', req.user); // ← add this
+    dto.sellerId = req.user.sub; // ← inject sellerId from JWT
     return await this.auctionService.createRealtimeAuction(dto, images);
   }
+
   @Post('draft')
-  @UseInterceptors(
-    FilesInterceptor('images', 10, {
-      storage: memoryStorage(),
-    }),
-  )
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('seller')
+  @UseInterceptors(FilesInterceptor('images', 10, { storage: memoryStorage() }))
   async createDraftAuction(
     @Body() dto: CreateDraftAuctionDto,
     @UploadedFiles() images: Express.Multer.File[],
+    @Request() req, // ← get token
   ) {
-    console.log('=== RAW BODY ===', dto);
+    dto.sellerId = req.user.sub; // ← inject sellerId from JWT
     return await this.auctionService.createDraftAuction(dto, images);
   }
 
@@ -77,27 +65,34 @@ export class AuctionController {
   }
 
   @Patch(':id/close')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('seller', 'admin')
   async closeAuction(
     @Param('id') id: string,
-    @Body() body: CloseAuctionDto,
+    @Request() req,
   ): Promise<Auction> {
-    return await this.auctionService.closeAuction(id, body.userId);
+    return await this.auctionService.closeAuction(id, req.user.sub);
   }
 
   @Delete(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('seller', 'admin')
   async deleteAuctionById(
     @Param('id') id: string,
-    @Body() body: DeleteAuctionDto,
+    @Request() req,
   ): Promise<{ message: string }> {
-    return await this.auctionService.deleteAuctionById(id, body.userId);
+    return await this.auctionService.deleteAuctionById(id, req.user.sub);
   }
 
   @Delete()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
   async deleteAllAuctions(
-    @Body() body: DeleteAllAuctionsDto,
+    @Request() req,
   ): Promise<{ message: string; deletedCount: number }> {
-    return await this.auctionService.deleteAllAuctions(body.userId);
+    return await this.auctionService.deleteAllAuctions(req.user.sub);
   }
+
   @Patch(':id/bid')
   async updateAuctionAfterBid(
     @Param('id') id: string,

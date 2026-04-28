@@ -11,7 +11,6 @@ import {
   IsEnum,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
-import { IsRequiredIf } from 'src/common/decorators/is-required-if.decorator';
 
 export const AUCTION_CATEGORIES = [
   'art',
@@ -25,7 +24,6 @@ export const AUCTION_CATEGORIES = [
 ] as const;
 
 export type AuctionCategory = (typeof AUCTION_CATEGORIES)[number];
-
 
 export class CreateRealtimeAuctionDto {
   @IsString()
@@ -45,8 +43,8 @@ export class CreateRealtimeAuctionDto {
   @Min(1)
   startingPrice: number;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   sellerId: string;
 
   @IsDateString()
@@ -61,16 +59,12 @@ export class CreateRealtimeAuctionDto {
   @IsIn(['new', 'like_new', 'used', 'damaged'])
   condition?: 'new' | 'like_new' | 'used' | 'damaged';
 
-  @Transform(({ value }) => value?.trim())  // ← add this
-  @IsIn(['TND', 'SOL'], {
-    message: 'Bid method must be either TND or SOL',
-  })
+  @Transform(({ value }) => value?.trim())
+  @IsIn(['TND', 'SOL'], { message: 'Bid method must be either TND or SOL' })
   bidMethod: 'TND' | 'SOL';
 
-
+  // ← No longer required from client — service reads it from user DB
+  @IsOptional()
   @IsString()
-  @IsRequiredIf('bidMethod', 'SOL', {
-    message: 'sellerWallet is required for SOL auctions',
-  })
   sellerWallet?: string;
 }

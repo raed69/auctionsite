@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
 /* eslint-disable prettier/prettier */
 import {
     BadRequestException,
@@ -17,6 +18,7 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
     id: string | number;
     role: string;
     email?: string;
+    phantom_wallet_address?: string | null; 
   }
   
   type AuctionRow = {
@@ -63,16 +65,25 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
         throw new BadRequestException('endTime must be in the future');
       }
     
-      if (dto.bidMethod === 'SOL' && !dto.sellerWallet) {
-        throw new BadRequestException('sellerWallet is required for SOL auctions');
-      }
-    
+      // ── 1. Fetch user and validate role ──────────────────────────────
       const user = await this.getUserFromUserService(dto.sellerId);
+    
       if (user.role !== 'seller') {
         throw new ForbiddenException('Only users with seller role can create auctions');
       }
     
-      // Upload images
+      // ── 2. For SOL auctions, read wallet from user service (not client) ──
+      if (dto.bidMethod === 'SOL') {
+        if (!user.phantom_wallet_address) {
+          throw new BadRequestException(
+            'You must connect your Phantom wallet before creating a SOL auction',
+          );
+        }
+        // Override whatever the client sent — use the verified wallet from DB
+        dto.sellerWallet = user.phantom_wallet_address;
+      }
+    
+      // ── 3. Upload images ──────────────────────────────────────────────
       const imageUrls: string[] = [];
       if (images && images.length > 0) {
         for (const image of images) {
@@ -86,7 +97,7 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
         }
       }
     
-      // Insert auction into Supabase
+      // ── 4. Insert auction into Supabase ───────────────────────────────
       const { data, error } = await supabase
         .from('auctions')
         .insert({
@@ -114,18 +125,18 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
         .select()
         .single();
     
-      if (error || !data) {
-        throw new BadRequestException(error?.message || 'Failed to create realtime auction');
+      if (error || !data) { 
+        throw new BadRequestException(
+          error?.message || 'Failed to create realtime auction',
+        );
       }
     
       const auction = this.mapAuction(data as AuctionRow);
     
-      // ✅ SOL auction — call blockchain-service
+      // ── 5. SOL auction — call blockchain-service ──────────────────────
       if (dto.bidMethod === 'SOL') {
         try {
           const endTimeUnix = Math.floor(end.getTime() / 1000);
-    
-          // ✅ Truncate UUID to max 32 bytes for Solana PDA seed
           const solanaAuctionId = auction.id!.replace(/-/g, '').substring(0, 32);
     
           const blockchainRes = await fetch(
@@ -134,7 +145,7 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                sellerWallet: dto.sellerWallet,
+                sellerWallet: dto.sellerWallet, // ← now guaranteed to be from DB
                 auctionId: solanaAuctionId,
                 minBidSol: dto.startingPrice,
                 endTime: endTimeUnix,
@@ -150,12 +161,11 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
             throw new BadRequestException(`Blockchain error: ${blockchainData.error}`);
           }
     
-          // Save escrow address and solanaAuctionId to Supabase
           await supabase
             .from('auctions')
             .update({
               escrow_address: blockchainData.escrowAddress,
-              solana_auction_id: solanaAuctionId, // ✅ save for future bid references
+              solana_auction_id: solanaAuctionId,
             })
             .eq('id', auction.id);
     
@@ -168,13 +178,14 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
             blockchainTransaction: blockchainData.transaction,
             escrowAddress: blockchainData.escrowAddress,
           };
-    
         } catch (err) {
-          throw new BadRequestException('Failed to initialize blockchain auction: ' + err.message);
+          throw new BadRequestException(
+            'Failed to initialize blockchain auction: ' + err.message,
+          );
         }
       }
     
-      // TND auction — return just the auction
+      // ── TND auction — return just the auction ─────────────────────────
       return { auction };
     }
       
@@ -189,24 +200,34 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
       const end = new Date(dto.endTime);
     
       if (start <= now) {
-        throw new BadRequestException('For draft auctions, startTime must be in the future');
+        throw new BadRequestException(
+          'For draft auctions, startTime must be in the future',
+        );
       }
     
       if (end <= start) {
         throw new BadRequestException('endTime must be greater than startTime');
       }
     
-      // Validate SOL requirements
-      if (dto.bidMethod === 'SOL' && !dto.sellerWallet) {
-        throw new BadRequestException('sellerWallet is required for SOL auctions');
-      }
-    
+      // ── 1. Fetch user and validate role ──────────────────────────────
       const user = await this.getUserFromUserService(dto.sellerId);
+    
       if (user.role !== 'seller') {
         throw new ForbiddenException('Only users with seller role can create auctions');
       }
     
-      // Upload images
+      // ── 2. For SOL auctions, read wallet from user service (not client) ──
+      if (dto.bidMethod === 'SOL') {
+        if (!user.phantom_wallet_address) {
+          throw new BadRequestException(
+            'You must connect your Phantom wallet before creating a SOL auction',
+          );
+        }
+        // Override client input — wallet must come from verified DB record
+        dto.sellerWallet = user.phantom_wallet_address;
+      }
+    
+      // ── 3. Upload images ──────────────────────────────────────────────
       const imageUrls: string[] = [];
       if (images && images.length > 0) {
         for (const image of images) {
@@ -220,7 +241,8 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
         }
       }
     
-      // Insert auction into Supabase — NO blockchain call yet
+      // ── 4. Insert draft auction — NO blockchain call yet ──────────────
+      // Scheduler will call blockchain-service when startTime is reached
       const { data, error } = await supabase
         .from('auctions')
         .insert({
@@ -243,16 +265,17 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
           bid_method: dto.bidMethod ?? 'TND',
           escrow_address: null,
           solana_auction_id: null,
-          sellerwallet: dto.sellerWallet ?? null, // saved for later when scheduler activates
+          sellerwallet: dto.sellerWallet ?? null, // verified wallet saved for scheduler
         })
         .select()
         .single();
     
       if (error || !data) {
-        throw new BadRequestException(error?.message || 'Failed to create draft auction');
+        throw new BadRequestException(
+          error?.message || 'Failed to create draft auction',
+        );
       }
     
-      // ✅ No blockchain call here — scheduler will handle it when startTime is reached
       return this.mapAuction(data as AuctionRow);
     }
 
@@ -339,26 +362,31 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
   
     private async getUserFromUserService(userId: string): Promise<UserResponse> {
       const userServiceUrl = this.configService.get<string>('USER_SERVICE_URL');
-  
+      const internalSecret = this.configService.get<string>('INTERNAL_SECRET');
+    
       if (!userServiceUrl) {
         throw new BadRequestException('USER_SERVICE_URL is not configured');
       }
-  
+    
       try {
-        const response = await fetch(`${userServiceUrl}/user/${userId}`);
-  
+        const response = await fetch(`${userServiceUrl}/user/internal/${userId}`, {
+          headers: {
+            'x-internal-secret': internalSecret ?? '',
+          },
+        });
+    
         if (!response.ok) {
           if (response.status === 404) {
             throw new NotFoundException('Seller not found in user-service');
           }
-  
-          throw new ServiceUnavailableException(
-            'Failed to verify user from user-service',
-          );
+          throw new ServiceUnavailableException('Failed to verify user from user-service');
         }
-  
+    
         return (await response.json()) as UserResponse;
-      } catch {
+      } catch (err) {
+        if (err instanceof NotFoundException || err instanceof ServiceUnavailableException) {
+          throw err;
+        }
         throw new ServiceUnavailableException('Could not connect to user-service');
       }
     }
@@ -471,47 +499,42 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
         const user = await this.getUserFromUserService(currentUserId);
         const normalizedRole = String(user.role).trim().toLowerCase();
       
-      /*  if (normalizedRole !== 'admin') {
+        if (normalizedRole !== 'admin') {
           throw new ForbiddenException('Only admin can delete all auctions');
         }
-      */
+      
         const { data: existingAuctions, error: fetchError } = await this.supabaseService
           .getClient()
           .from('auctions')
           .select('id');
       
-        if (fetchError) {
-          throw new BadRequestException(fetchError.message);
-        }
+        if (fetchError) throw new BadRequestException(fetchError.message);
       
         const deletedCount = existingAuctions?.length ?? 0;
       
+        // ← Fix: use gt (greater than) on created_at instead of neq on UUID
         const { error } = await this.supabaseService
           .getClient()
           .from('auctions')
           .delete()
-          .neq('id', '');
+          .gte('created_at', '1970-01-01'); // ← matches all rows safely
       
-        if (error) {
-          throw new BadRequestException(error.message);
-        }
+        if (error) throw new BadRequestException(error.message);
       
         return {
           message: 'All auctions deleted successfully',
           deletedCount,
         };
       }
+
+
+
+
       async updateAuctionAfterBid(
         auctionId: string,
         amount: number,
         bidderId: string,
       ): Promise<Auction> {
-        const auction = await this.getAuctionById(auctionId);
-      
-        if (!auction) {
-          throw new Error('Auction not found');
-        }
-      
         const supabase = this.supabaseService.getClient();
       
         const { data, error } = await supabase
@@ -519,19 +542,26 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
           .update({
             current_price: amount,
             highest_bidder_id: String(bidderId),
-            bid_count: Number(auction.bid_count || 0) + 1,
             updated_at: new Date().toISOString(),
           })
           .eq('id', auctionId)
           .select()
           .single();
       
-        if (error) {
-          console.log('updateAuctionAfterBid error:', error);
-          throw new Error(error.message);
+        if (error || !data) {
+          throw new Error(error?.message ?? 'Auction not found');
         }
       
-        return this.mapAuction(data);
+        // Atomic increment — safe under concurrent bids
+        const { error: rpcError } = await supabase.rpc('increment_bid_count', {
+          auction_id: auctionId,
+        });
+      
+        if (rpcError) {
+          throw new Error('Failed to increment bid count: ' + rpcError.message);
+        }
+      
+        return this.mapAuction({ ...data, bid_count: Number(data.bid_count) + 1 });
       }
 
   }
