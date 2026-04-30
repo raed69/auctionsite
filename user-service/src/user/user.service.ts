@@ -233,4 +233,74 @@ export class UserService {
     if (error) throw new BadRequestException(error.message);
     return data;
   }
+
+  // ─── Get TND balance ──────────────────────────────────────────
+  async getTndBalance(userId: string): Promise<{ balance: number }> {
+    const { data, error } = await supabase
+      .from('users')
+      .select('balance')
+      .eq('id', userId)
+      .single();
+
+    if (error || !data) throw new NotFoundException('User not found');
+    return { balance: Number(data.balance ?? 0) };
+  }
+
+  // ─── Deduct balance (when bid is placed) ─────────────────────
+  async deductBalance(
+    userId: string,
+    amount: number,
+  ): Promise<{ message: string; balance: number }> {
+    console.log('Deduct request — userId:', userId, 'amount:', amount);
+  
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('balance')
+      .eq('id', userId)
+      .single();
+  
+    console.log('User found:', user, 'error:', error);
+    console.log('Current balance:', user?.balance, 'needed:', amount);
+  
+    if (error || !user) throw new NotFoundException('User not found');
+  
+    const currentBalance = Number(user.balance ?? 0);
+    if (currentBalance < amount) {
+      throw new BadRequestException(
+        `Insufficient balance. You have ${currentBalance} TND, need ${amount} TND. Please deposit first.`,
+      );
+    }
+  
+    const newBalance = currentBalance - amount;
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ balance: newBalance })
+      .eq('id', userId);
+  
+    if (updateError) throw new BadRequestException(updateError.message);
+    return { message: 'Balance deducted successfully', balance: newBalance };
+  }
+
+  // ─── Refund balance (when outbid) ────────────────────────────
+  async refundBalance(
+    userId: string,
+    amount: number,
+  ): Promise<{ message: string; balance: number }> {
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('balance')
+      .eq('id', userId)
+      .single();
+
+    if (error || !user) throw new NotFoundException('User not found');
+
+    const newBalance = Number(user.balance ?? 0) + amount;
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ balance: newBalance })
+      .eq('id', userId);
+
+    if (updateError) throw new BadRequestException(updateError.message);
+    return { message: 'Balance refunded successfully', balance: newBalance };
+  }
 }
