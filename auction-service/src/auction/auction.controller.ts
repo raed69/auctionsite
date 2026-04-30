@@ -104,4 +104,11 @@ export class AuctionController {
       body.bidderId,
     );
   }
+
+  @Patch(':id/confirm-winner')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('seller')
+  async confirmWinner(@Param('id') id: string, @Request() req) {
+    return this.auctionService.confirmWinner(id, req.user.sub);
+  }
 }

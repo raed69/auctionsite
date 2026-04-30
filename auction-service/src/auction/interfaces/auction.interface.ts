@@ -26,7 +26,7 @@ export interface Auction {
   startTime: string;
   endTime: string;
 
-  status: 'draft' | 'active' | 'ended';
+  status: 'draft' | 'active' | 'ended' | 'confirmed';
 
   createdAt?: string;
   updatedAt?: string;

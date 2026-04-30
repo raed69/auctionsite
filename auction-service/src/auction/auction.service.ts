@@ -6,6 +6,7 @@ import {
     Injectable,
     NotFoundException,
     ServiceUnavailableException,
+    Logger
   } from '@nestjs/common';
   import { ConfigService } from '@nestjs/config';
   import { CreateRealtimeAuctionDto } from './dto/create-realtime-auction.dto';
@@ -36,7 +37,7 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
     bid_count: number | string;
     start_time: string;
     end_time: string;
-    status: 'draft' | 'active' | 'ended';
+    status: 'draft' | 'active' | 'ended' | 'confirmed';
     created_at: string;
     updated_at: string | null;
     closed_at: string | null;
@@ -48,6 +49,7 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
   };
   @Injectable()
   export class AuctionService {
+    private readonly logger = new Logger(AuctionService.name);
     constructor(
       private readonly supabaseService: SupabaseService,
       private readonly configService: ConfigService,
@@ -371,7 +373,7 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
       try {
         const response = await fetch(`${userServiceUrl}/user/internal/${userId}`, {
           headers: {
-            'x-internal-secret': internalSecret ?? '',
+            'x-service-secret': internalSecret ?? '',
           },
         });
     
@@ -562,6 +564,81 @@ import { uploadImageToSupabase } from './utils/uploadImagTosupabase';
         }
       
         return this.mapAuction({ ...data, bid_count: Number(data.bid_count) + 1 });
+      }
+
+      async confirmWinner(auctionId: string, sellerId: string): Promise<Auction> {
+        const row = await this.getAuctionRowById(auctionId);
+      
+        // ─── 1. Validate ──────────────────────────────────────────────
+        if (String(row.seller_id) !== String(sellerId)) {
+          throw new ForbiddenException('Only the seller can confirm the winner');
+        }
+      
+        if (row.status !== 'ended') {
+          throw new BadRequestException('Auction must be ended before confirming winner');
+        }
+      
+        if (!row.highest_bidder_id) {
+          throw new BadRequestException('No winner to confirm — auction had no bids');
+        }
+      
+        // ─── 2. Update auction status ─────────────────────────────────
+        const { data, error } = await this.supabaseService
+          .getClient()
+          .from('auctions')
+          .update({
+            status: 'confirmed',
+            winner_id: row.highest_bidder_id,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', auctionId)
+          .select()
+          .single();
+      
+        if (error || !data) {
+          throw new BadRequestException('Failed to confirm winner');
+        }
+      
+        // ─── 3. Credit seller balance ─────────────────────────────────
+        const userServiceUrl = this.configService.get<string>('USER_SERVICE_URL');
+        const internalSecret = this.configService.get<string>('INTERNAL_SECRET');
+      
+        try {
+          await fetch(
+            `${userServiceUrl}/user/internal/balance/credit/${row.seller_id}`,
+            {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-service-secret': internalSecret ?? '',
+              },
+              body: JSON.stringify({ amount: Number(row.current_price) }),
+            },
+          );
+        } catch (err) {
+          this.logger.error(`Failed to credit seller ${row.seller_id}:`, err.message);
+        }
+      
+        // ─── 4. Notify both parties ───────────────────────────────────
+        const notificationServiceUrl = this.configService.get<string>('NOTIFICATION_SERVICE_URL');
+      
+        try {
+          await fetch(`${notificationServiceUrl}/notifications/confirm-winner`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              auctionId,
+              auctionTitle: row.title,
+              winnerId: row.highest_bidder_id,
+              sellerId: row.seller_id,
+              winningAmount: row.current_price,
+            }),
+          });
+        } catch (err) {
+          this.logger.error(`Failed to send confirm notifications:`, err.message);
+        }
+      
+        return this.mapAuction(data);
       }
 
   }
