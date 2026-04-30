@@ -303,4 +303,14 @@ export class UserService {
     if (updateError) throw new BadRequestException(updateError.message);
     return { message: 'Balance refunded successfully', balance: newBalance };
   }
+
+  async creditBalance(userId: string, amount: number): Promise<void> {
+    const { error } = await supabase.rpc('increment_balance', {
+      user_id: Number(userId),
+      amount: amount,
+    });
+  
+    if (error) throw new BadRequestException('Failed to credit balance: ' + error.message);
+  }
+
 }

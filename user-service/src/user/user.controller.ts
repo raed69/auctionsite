@@ -156,4 +156,19 @@ export class UserController {
   rejectSeller(@Param('id') id: string) {
     return this.userService.rejectSeller(id);
   }
+  @Get('internal/:userId')
+  @UseGuards(ServiceSecretGuard)
+  getInternalUser(@Param('userId') userId: string) {
+    return this.userService.getProfile(userId);
+  }
+
+  @Patch('internal/balance/credit/:userId')
+  @UseGuards(ServiceSecretGuard)
+  creditBalance(
+    @Param('userId') userId: string,
+    @Body() body: { amount: number },
+  ) {
+    return this.userService.creditBalance(userId, body.amount);
+  }
+
 }
