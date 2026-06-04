@@ -1,0 +1,9 @@
+frontend flow for connct wallet address:
+FRONTEND (React/Next.js)
+  └── Button: "Connect Phantom Wallet"
+      └── calls window.solana.connect()
+          └── Gets publicKey from Phantom
+              └── Sends it to YOUR backend
+                  └── PATCH /user/:id/wallet
+                      └── Saved to DB ✅
+kima google tsir

@@ -1,0 +1,15 @@
+logic auction:
+POST /auctions/realtime  (bid_method=SOL)
+  └── Fetch user from user-service
+      └── user.role must be 'seller'          ← existing check
+      └── user.phantom_wallet_address must exist  ← new check
+          └── Use it as sellerWallet → call blockchain-service
+              └── Create escrow on Solana
+              └── Save escrow_address + solana_auction_id
+
+POST /bids  (on a SOL auction)
+  └── Fetch auction → read bid_method + solana_auction_id
+  └── Fetch user from user-service
+      └── user.phantom_wallet_address must exist  ← wallet check
+  └── GET /user/:id/sol-balance → check on-chain balance >= bid amount
+  └── Call blockchain-service to place bid on-chain

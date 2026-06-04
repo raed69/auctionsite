@@ -1,6 +1,29 @@
 version: '3.8'
 
 services:
+  # ─────────────────────────────────────────
+  # API Gateway — port 3000
+  # ─────────────────────────────────────────
+  api-gateway:
+    build: ./api-gateway
+    container_name: api-gateway
+    restart: always
+    env_file:
+      - ./api-gateway/.env
+    ports:
+      - "3000:3000"
+    depends_on:
+      - user-service
+      - auction-service
+      - bidding-service
+      - blockchain-service
+      - notification-service
+    networks:
+      - auctionsite-network
+
+  # ─────────────────────────────────────────
+  # User Service — port 3001
+  # ─────────────────────────────────────────
   user-service:
     build: ./user-service
     container_name: user-service
@@ -9,3 +32,73 @@ services:
       - ./user-service/.env
     ports:
       - "3001:3001"
+    networks:
+      - auctionsite-network
+
+  # ─────────────────────────────────────────
+  # Auction Service — port 3002
+  # ─────────────────────────────────────────
+  auction-service:
+    build: ./auction-service
+    container_name: auction-service
+    restart: always
+    env_file:
+      - ./auction-service/.env
+    ports:
+      - "3002:3002"
+    depends_on:
+      - user-service
+    networks:
+      - auctionsite-network
+
+  # ─────────────────────────────────────────
+  # Bidding Service — port 3003
+  # ─────────────────────────────────────────
+  bidding-service:
+    build: ./bidding-service
+    container_name: bidding-service
+    restart: always
+    env_file:
+      - ./bidding-service/.env
+    ports:
+      - "3003:3003"
+    depends_on:
+      - user-service
+      - auction-service
+      - blockchain-service
+    networks:
+      - auctionsite-network
+
+  # ─────────────────────────────────────────
+  # Blockchain Service — port 3004
+  # ─────────────────────────────────────────
+  blockchain-service:
+    build: ./blockchain-service
+    container_name: blockchain-service
+    restart: always
+    env_file:
+      - ./blockchain-service/.env
+    ports:
+      - "3004:3004"
+    networks:
+      - auctionsite-network
+
+  # ─────────────────────────────────────────
+  # Notification Service — port 3005
+  # ─────────────────────────────────────────
+  notification-service:
+    build: ./notification-service
+    container_name: notification-service
+    restart: always
+    env_file:
+      - ./notification-service/.env
+    ports:
+      - "3005:3005"
+    depends_on:
+      - user-service
+    networks:
+      - auctionsite-network
+
+networks:
+  auctionsite-network:
+    driver: bridge
