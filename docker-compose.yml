@@ -18,6 +18,7 @@ services:
       - bidding-service
       - blockchain-service
       - notification-service
+      - messaging-service
     networks:
       - auctionsite-network
 
@@ -98,6 +99,19 @@ services:
       - user-service
     networks:
       - auctionsite-network
+  # ─────────────────────────────────────────
+  # Messaging Service — port 3006
+  # ─────────────────────────────────────────
+messaging-service:
+  build: ./messaging-service
+  container_name: messaging-service
+  restart: always
+  env_file:
+    - ./messaging-service/.env
+  ports:
+    - "3006:3006"
+  networks:
+    - auctionsite-network
 
 networks:
   auctionsite-network:

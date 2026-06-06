@@ -15,6 +15,7 @@ import { PaymentsController } from './modules/payments/payments.controller';
 
 // ── Guards ───────────────────────────────────────────────────────
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { MessagingController } from './modules/messaging/messaging.controller';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
     BlockchainController,
     NotificationsController,
     PaymentsController,
+    MessagingController,
   ],
 
   providers: [

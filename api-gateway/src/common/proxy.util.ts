@@ -1,5 +1,5 @@
 import { HttpException, HttpStatus, Logger } from '@nestjs/common';
-import axios, { AxiosRequestConfig, Method } from 'axios';
+import axios from 'axios';
 import { Request } from 'express';
 
 const logger = new Logger('ProxyUtil');
@@ -7,7 +7,7 @@ const logger = new Logger('ProxyUtil');
 export interface ProxyOptions {
   serviceUrl: string;
   path: string;
-  method: Method;
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
   req: Request;
   body?: any;
 }
@@ -40,7 +40,7 @@ export async function proxyRequest(options: ProxyOptions): Promise<any> {
 
   logger.debug(`→ ${method.toUpperCase()} ${url} [${isMultipart ? 'multipart' : 'json'}]`);
 
-  const config: AxiosRequestConfig = {
+  const config = {
     method,
     url,
     params: req.query,

@@ -21,8 +21,9 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 export class AuctionsModule implements NestModule {
   constructor(private readonly configService: ConfigService) {}
 
-  configure(consumer: MiddlewareConsumer) {
-    const auctionServiceUrl = this.configService.get<string>('AUCTION_SERVICE_URL')!;
+configure(consumer: MiddlewareConsumer) {
+  console.log('AUCTION_SERVICE_URL:', process.env.AUCTION_SERVICE_URL);
+  const auctionServiceUrl = process.env.AUCTION_SERVICE_URL!;
 
     consumer
       .apply(
